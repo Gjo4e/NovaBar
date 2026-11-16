@@ -136,7 +136,7 @@ let hover=second.outer_position().ok().zip(second.outer_size().ok()).map(|(pos,s
 if edge||hover||open{second_last_near=std::time::Instant::now();}
 let show=edge||open||second_shown&&second_last_near.elapsed()<std::time::Duration::from_millis(850);
 if show!=second_shown{second_shown=show;if show{let _=second.show();}else{let _=second.hide();}}
-}}
+}}}
 else if second_shown{second_shown=false;let _=second.hide();}
 }
 }
