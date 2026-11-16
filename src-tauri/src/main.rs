@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use std::{sync::Mutex, path::PathBuf, process::Command, os::windows::process::CommandExt};
+use std::{sync::{Mutex,Arc,atomic::{AtomicBool,Ordering}}, path::PathBuf, process::Command, os::windows::process::CommandExt};
 use serde::{Serialize,Deserialize};
 use tauri::{Manager,State,AppHandle,PhysicalPosition,PhysicalSize};
 use sysinfo::System;
@@ -9,7 +9,7 @@ struct Shortcut { name:String,target:String }
 struct Settings { shortcuts:Vec<Shortcut>,hide:bool, #[serde(default)] appearance:Appearance }
 #[derive(Clone,Serialize,Deserialize)] struct Appearance { width:u32, opacity:u8, accent:String, blur:bool }
 impl Default for Appearance {fn default()->Self{Self{width:1100,opacity:72,accent:"#9c9cff".into(),blur:true}}}
-struct Data { settings:Mutex<Settings>,system:Mutex<System>,last_foreground:Mutex<usize> }
+struct Data { settings:Mutex<Settings>,system:Mutex<System>,last_foreground:Mutex<usize>,panel_open:Arc<AtomicBool> }
 fn defaults()->Settings { Settings{hide:false,appearance:Appearance::default(),shortcuts:vec![Shortcut{name:"Explorer".into(),target:"explorer.exe".into()},Shortcut{name:"Browser".into(),target:"https://www.google.com".into()},Shortcut{name:"Settings".into(),target:"ms-settings:".into()}]} }
 fn config(app:&AppHandle)->PathBuf { app.path().app_config_dir().unwrap().join("settings.json") }
 fn save(app:&AppHandle,s:&Settings){let p=config(app);if let Some(d)=p.parent(){let _=std::fs::create_dir_all(d);}let _=std::fs::write(p,serde_json::to_string(s).unwrap());}
@@ -19,9 +19,9 @@ fn taskbar(hide:bool){unsafe{use windows_sys::Win32::UI::WindowsAndMessaging::{F
 #[tauri::command] fn launch(i:usize,data:State<Data>)->Result<(),String>{let target={let s=data.settings.lock().unwrap();s.shortcuts.get(i).ok_or("Unknown shortcut")?.target.clone()};let last=*data.last_foreground.lock().unwrap();let wins=windows_list();let matching:Vec<_>=wins.iter().filter(|w|matches_target(&target,&w.path)).collect();if !matching.is_empty(){let chosen=matching.iter().find(|w|w.id.parse::<usize>().ok()==Some(last)).unwrap_or(&matching[0]);return activate_window_with_previous(chosen.id.clone(),last);}let target=&target;if target.starts_with("http://")||target.starts_with("https://")||target.starts_with("ms-settings:")||target.ends_with(".lnk"){Command::new("explorer.exe").arg(target).spawn().map_err(|e|e.to_string())?;}else{Command::new(target).spawn().map_err(|e|e.to_string())?;}Ok(())}
 #[tauri::command] async fn add(app:AppHandle,data:State<'_,Data>)->Result<Settings,String>{let selected=tauri::async_runtime::spawn_blocking(||rfd::FileDialog::new().add_filter("Applications",&["exe","lnk"]).pick_file()).await.map_err(|e|e.to_string())?;let mut s=data.settings.lock().unwrap();if let Some(p)=selected{let name=p.file_stem().unwrap_or_default().to_string_lossy().into_owned();s.shortcuts.push(Shortcut{name,target:p.to_string_lossy().into_owned()});save(&app,&s);}Ok(s.clone())}
 #[tauri::command] fn remove(i:usize,app:AppHandle,data:State<Data>)->Settings{let mut s=data.settings.lock().unwrap();if i<s.shortcuts.len(){s.shortcuts.remove(i);save(&app,&s);}s.clone()}
-#[tauri::command] fn hide(v:bool,app:AppHandle,data:State<Data>)->Settings{let mut s=data.settings.lock().unwrap();if v && !s.hide{if let Ok(exe)=std::env::current_exe(){let _=Command::new(exe).args(["--watchdog",&std::process::id().to_string()]).creation_flags(0x08000000).spawn();}}s.hide=v;taskbar(v);reserve(&app,v);s.clone()}
+#[tauri::command] fn hide(v:bool,app:AppHandle,data:State<Data>)->Settings{let mut s=data.settings.lock().unwrap();if v && !s.hide{if let Ok(exe)=std::env::current_exe(){let _=Command::new(exe).args(["--watchdog",&std::process::id().to_string()]).creation_flags(0x08000000).spawn();}}s.hide=v;taskbar(v);reserve(&app,false);s.clone()}
 #[tauri::command] fn quit(app:AppHandle){reserve(&app,false);taskbar(false);app.exit(0);}
-fn main(){if std::env::args().nth(1).as_deref()==Some("--watchdog"){watchdog();return;}tauri::Builder::default().setup(|app|{let mut s=std::fs::read_to_string(config(app.handle())).ok().and_then(|x|serde_json::from_str::<Settings>(&x).ok()).unwrap_or_else(defaults);s.hide=false;let initial=s.appearance.clone();app.manage(Data{settings:Mutex::new(s),system:Mutex::new(System::new()),last_foreground:Mutex::new(0)});let w=app.get_webview_window("main").unwrap();if let Some(m)=w.primary_monitor()?{let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=(initial.width as f64*scale) as u32;let height=(108.0*scale) as u32;let width=width.min(size.width);w.set_size(PhysicalSize::new(width,height))?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32-(8.0*scale) as i32))?;}Ok(())}).invoke_handler(tauri::generate_handler![state,stats,launch,add,remove,hide,quit,media,media_action,network,icons,running,appearance,open_start,windows_list,activate_window,window_icons,installed_apps,launch_installed,system_panel,fullscreen,monitor_list,move_monitor,fullscreen_visibility,reorder,autostart,system_settings,volume_key,battery_details,dock_layout,remember_foreground]).on_window_event(|w,e|{if matches!(e,tauri::WindowEvent::CloseRequested{..}){reserve(w.app_handle(),false);taskbar(false);}}).build(tauri::generate_context!()).expect("NovaBar startup failed").run(|_,e|{if matches!(e,tauri::RunEvent::Exit){taskbar(false);}});}
+fn main(){if std::env::args().nth(1).as_deref()==Some("--watchdog"){watchdog();return;}let mutex_name:Vec<u16>="Local\\NovaBarSingleInstance".encode_utf16().chain(Some(0)).collect();let single=unsafe{windows_sys::Win32::System::Threading::CreateMutexW(std::ptr::null(),0,mutex_name.as_ptr())};if single.is_null(){return;}if unsafe{windows_sys::Win32::Foundation::GetLastError()}==183{unsafe{windows_sys::Win32::Foundation::CloseHandle(single)};return;}tauri::Builder::default().setup(|app|{let mut s=std::fs::read_to_string(config(app.handle())).ok().and_then(|x|serde_json::from_str::<Settings>(&x).ok()).unwrap_or_else(defaults);s.hide=false;let initial=s.appearance.clone();app.manage(Data{settings:Mutex::new(s),system:Mutex::new(System::new()),last_foreground:Mutex::new(0),panel_open:Arc::new(AtomicBool::new(false))});let w=app.get_webview_window("main").unwrap();if let Some(m)=w.primary_monitor()?{let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=(initial.width.max(1250) as f64*scale) as u32;let height=(108.0*scale) as u32;let width=width.min(size.width);w.set_size(PhysicalSize::new(width,height))?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32))?;}start_edge_monitor(app.handle().clone());Ok(())}).invoke_handler(tauri::generate_handler![state,stats,launch,add,remove,hide,quit,media,media_action,network,icons,running,appearance,open_start,windows_list,activate_window,window_icons,installed_apps,launch_installed,system_panel,fullscreen,monitor_list,move_monitor,fullscreen_visibility,reorder,autostart,system_settings,volume_key,battery_details,dock_layout,remember_foreground,panel_state]).on_window_event(|w,e|{if matches!(e,tauri::WindowEvent::CloseRequested{..}){reserve(w.app_handle(),false);taskbar(false);}}).build(tauri::generate_context!()).expect("NovaBar startup failed").run(|_,e|{if matches!(e,tauri::RunEvent::Exit){taskbar(false);}});}
 
 #[tauri::command] async fn media()->Result<serde_json::Value,String>{
 tauri::async_runtime::spawn_blocking(|| -> Result<serde_json::Value,String>{
@@ -60,7 +60,7 @@ let wins=windows_list();let s=data.settings.lock().unwrap();s.shortcuts.iter().m
 #[tauri::command] fn appearance(app:AppHandle,data:State<Data>,value:Appearance)->Result<Settings,String>{
 let mut s=data.settings.lock().unwrap();s.appearance=Appearance{width:value.width.clamp(650,1500),opacity:value.opacity.clamp(25,100),accent:value.accent,blur:value.blur};save(&app,&s);
 let w=app.get_webview_window("main").ok_or("Missing window")?;
-if let Some(m)=w.current_monitor().map_err(|e|e.to_string())?{let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=((s.appearance.width as f64*scale) as u32).min(size.width);let height=(108.0*scale) as u32;w.set_size(PhysicalSize::new(width,height)).map_err(|e|e.to_string())?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32-(8.0*scale) as i32)).map_err(|e|e.to_string())?;}if s.hide{reserve(&app,false);reserve(&app,true);}Ok(s.clone())
+if let Some(m)=w.current_monitor().map_err(|e|e.to_string())?{let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=((s.appearance.width.max(1250) as f64*scale) as u32).min(size.width);let height=(108.0*scale) as u32;w.set_size(PhysicalSize::new(width,height)).map_err(|e|e.to_string())?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32)).map_err(|e|e.to_string())?;}if s.hide{reserve(&app,false);}Ok(s.clone())
 }
 #[tauri::command] fn open_start()->Result<(),String>{Command::new("explorer.exe").arg("shell:AppsFolder").spawn().map_err(|e|e.to_string())?;Ok(())}
 
@@ -92,7 +92,7 @@ fn watchdog(){use windows_sys::Win32::{Foundation::CloseHandle,System::Threading
 #[tauri::command] fn system_panel(panel:String)->Result<(),String>{use windows_sys::Win32::UI::Input::KeyboardAndMouse::{keybd_event,KEYEVENTF_KEYUP};let key=match panel.as_str(){"notifications"=>b'N',"quick"=>b'A',"start"=>0,"desktops"=>0x09,_=>return Err("Unknown panel".into())};unsafe{keybd_event(0x5b,0,0,0);if key!=0{keybd_event(key,0,0,0);keybd_event(key,0,KEYEVENTF_KEYUP,0);}keybd_event(0x5b,0,KEYEVENTF_KEYUP,0);}Ok(())}
 #[tauri::command] fn fullscreen()->bool{use windows_sys::Win32::{Foundation::RECT,UI::WindowsAndMessaging::{GetForegroundWindow,GetWindowRect,GetWindowThreadProcessId},Graphics::Gdi::{MonitorFromWindow,GetMonitorInfoW,MONITORINFO,MONITOR_DEFAULTTONEAREST}};unsafe{let h=GetForegroundWindow();if h.is_null(){return false}let mut pid=0;GetWindowThreadProcessId(h,&mut pid);if pid==std::process::id(){return false}let mut r:RECT=std::mem::zeroed();if GetWindowRect(h,&mut r)==0{return false}let m=MonitorFromWindow(h,MONITOR_DEFAULTTONEAREST);let mut info:MONITORINFO=std::mem::zeroed();info.cbSize=std::mem::size_of::<MONITORINFO>() as u32;if GetMonitorInfoW(m,&mut info)==0{return false}let s=info.rcMonitor;r.left<=s.left&&r.top<=s.top&&r.right>=s.right&&r.bottom>=s.bottom}}
 #[tauri::command] fn monitor_list(app:AppHandle)->Result<Vec<String>,String>{let w=app.get_webview_window("main").ok_or("Missing window")?;Ok(w.available_monitors().map_err(|e|e.to_string())?.iter().enumerate().map(|(i,m)|m.name().cloned().unwrap_or_else(||format!("Display {}",i+1))).collect())}
-#[tauri::command] fn move_monitor(app:AppHandle,data:State<Data>,index:usize)->Result<(),String>{let w=app.get_webview_window("main").ok_or("Missing window")?;let monitors=w.available_monitors().map_err(|e|e.to_string())?;let m=monitors.get(index).ok_or("Display unavailable")?;let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=((data.settings.lock().unwrap().appearance.width as f64*scale) as u32).min(size.width);let height=(156.0*scale) as u32;w.set_size(PhysicalSize::new(width,height)).map_err(|e|e.to_string())?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32-(8.0*scale) as i32)).map_err(|e|e.to_string())?;if data.settings.lock().unwrap().hide{reserve(&app,false);reserve(&app,true);}Ok(())}
+#[tauri::command] fn move_monitor(app:AppHandle,data:State<Data>,index:usize)->Result<(),String>{let w=app.get_webview_window("main").ok_or("Missing window")?;let monitors=w.available_monitors().map_err(|e|e.to_string())?;let m=monitors.get(index).ok_or("Display unavailable")?;let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=((data.settings.lock().unwrap().appearance.width as f64*scale) as u32).min(size.width);let height=(108.0*scale) as u32;w.set_size(PhysicalSize::new(width,height)).map_err(|e|e.to_string())?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32-(8.0*scale) as i32)).map_err(|e|e.to_string())?;if data.settings.lock().unwrap().hide{reserve(&app,false);reserve(&app,true);}Ok(())}
 
 fn reserve(app:&AppHandle,enable:bool){use windows_sys::Win32::UI::Shell::{SHAppBarMessage,APPBARDATA,ABM_NEW,ABM_REMOVE,ABM_QUERYPOS,ABM_SETPOS,ABE_BOTTOM};if let Some(w)=app.get_webview_window("main"){if let Ok(hwnd)=w.hwnd(){unsafe{let mut d:APPBARDATA=std::mem::zeroed();d.cbSize=std::mem::size_of::<APPBARDATA>() as u32;d.hWnd=hwnd.0 as _;if !enable{SHAppBarMessage(ABM_REMOVE,&mut d);return;}d.uCallbackMessage=0x8001;SHAppBarMessage(ABM_NEW,&mut d);if let Ok(Some(m))=w.current_monitor(){let p=m.position();let s=m.size();let h=(94.0*m.scale_factor()) as i32;d.uEdge=ABE_BOTTOM;d.rc.left=p.x;d.rc.right=p.x+s.width as i32;d.rc.bottom=p.y+s.height as i32;d.rc.top=d.rc.bottom-h;SHAppBarMessage(ABM_QUERYPOS,&mut d);d.rc.top=d.rc.bottom-h;SHAppBarMessage(ABM_SETPOS,&mut d);}}}}}
 #[tauri::command] fn fullscreen_visibility(app:AppHandle,hidden:bool)->Result<(),String>{let w=app.get_webview_window("main").ok_or("Missing window")?;w.set_ignore_cursor_events(hidden).map_err(|e|e.to_string())?;w.set_always_on_top(!hidden).map_err(|e|e.to_string())?;Ok(())}
@@ -108,13 +108,39 @@ let w=app.get_webview_window("main").ok_or("Missing window")?;
 let m=w.current_monitor().map_err(|e|e.to_string())?.or(w.primary_monitor().map_err(|e|e.to_string())?).ok_or("No monitor")?;
 let scale=m.scale_factor();let area=m.size();let origin=m.position();
 let s=app.state::<Data>();let configured=s.settings.lock().unwrap().appearance.width;
-let width=((configured as f64*scale) as u32).min(area.width.saturating_sub((24.0*scale) as u32)).max(1);
+let width=((configured.max(1250) as f64*scale) as u32).min(area.width.saturating_sub((24.0*scale) as u32)).max(1);
 let height=(((if expanded{620.0}else{108.0})*scale) as u32).min(area.height);
 let x=match position.as_str(){"left"=>origin.x+(12.0*scale) as i32,"right"=>origin.x+(area.width-width) as i32-(12.0*scale) as i32,_=>origin.x+(area.width-width) as i32/2};
-let y=origin.y+(area.height-height) as i32-(8.0*scale) as i32;
+let y=origin.y+(area.height-height) as i32;
 w.set_size(PhysicalSize::new(width,height)).map_err(|e|e.to_string())?;
 w.set_position(PhysicalPosition::new(x,y)).map_err(|e|e.to_string())?;
 Ok(())
 }
 
 #[tauri::command] fn remember_foreground(data:State<Data>){use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;let h=unsafe{GetForegroundWindow()};if h.is_null(){return;}let id=h as usize;if windows_list().iter().any(|w|w.id.parse::<usize>().ok()==Some(id)){*data.last_foreground.lock().unwrap()=id;}}
+
+#[tauri::command] fn panel_state(data:State<Data>,open:bool){data.panel_open.store(open,Ordering::Relaxed);}
+fn start_edge_monitor(app:AppHandle){
+let flag=app.state::<Data>().panel_open.clone();
+std::thread::spawn(move||{
+use windows_sys::Win32::{Foundation::POINT,UI::WindowsAndMessaging::GetCursorPos};
+let mut shown=false;let mut last_near=std::time::Instant::now();
+loop{
+std::thread::sleep(std::time::Duration::from_millis(65));
+let Some(w)=app.get_webview_window("main") else {break};
+let Ok(Some(m))=w.current_monitor() else {continue};
+let p=m.position();let s=m.size();
+let mut cursor:POINT=unsafe{std::mem::zeroed()};
+if unsafe{GetCursorPos(&mut cursor)}==0{continue}
+let at_edge=cursor.x>=p.x && cursor.x<p.x+s.width as i32 && cursor.y>=p.y+s.height as i32-3 && cursor.y<p.y+s.height as i32;
+let inside=w.outer_position().ok().zip(w.outer_size().ok()).map(|(pos,size)|cursor.x>=pos.x && cursor.x<pos.x+size.width as i32 && cursor.y>=pos.y && cursor.y<pos.y+size.height as i32).unwrap_or(false);
+let open=flag.load(Ordering::Relaxed);
+if at_edge||inside||open{last_near=std::time::Instant::now();}
+let should_show=(at_edge||open||shown && last_near.elapsed()<std::time::Duration::from_millis(850));
+if should_show!=shown{
+shown=should_show;
+if shown{let _=w.show();}else{let _=w.hide();}
+}
+}
+});
+}
