@@ -1,6 +1,6 @@
 {
   "productName": "NovaBar",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.novabar.desktop",
   "build": {
     "frontendDist": "../ui"
@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost https://geocoding-api.open-meteo.com https://api.open-meteo.com"
     }
   },
   "bundle": {
