@@ -108,7 +108,7 @@ let m=w.current_monitor().map_err(|e|e.to_string())?.or(w.primary_monitor().map_
 let scale=m.scale_factor();let area=m.size();let origin=m.position();
 let s=app.state::<Data>();let configured=s.settings.lock().unwrap().appearance.width;
 let width=((configured as f64*scale) as u32).min(area.width.saturating_sub((24.0*scale) as u32)).max(1);
-let height=((if expanded{390.0}else{108.0})*scale) as u32;
+let height=(((if expanded{620.0}else{108.0})*scale) as u32).min(area.height);
 let x=match position.as_str(){"left"=>origin.x+(12.0*scale) as i32,"right"=>origin.x+(area.width-width) as i32-(12.0*scale) as i32,_=>origin.x+(area.width-width) as i32/2};
 let y=origin.y+(area.height-height) as i32-(8.0*scale) as i32;
 w.set_size(PhysicalSize::new(width,height)).map_err(|e|e.to_string())?;
