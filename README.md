@@ -1,2 +1,2 @@
-# NovaBar 0.2
-Tauri 2 / Rust Windows dock. Build with GitHub Actions. Download NovaBar-Windows artifact. Experimental primary taskbar hiding is opt-in each session; Quit restores it. If a crash leaves it hidden, sign out and back in. Glass is simulated; app icons, music and Wi-Fi are not yet implemented. Memory targets are unmeasured. Electron prototype remains in Git history.
+# NovaBar
+Tauri Windows dock. GitHub Actions builds an unsigned NSIS installer. Includes native acrylic, executable icons, Windows media session controls, network/battery/system stats and appearance settings. Running indicators match executable names, not individual windows. Taskbar hiding is opt-in and restored on normal exit; sign out and back in if a crash leaves it hidden. Windows media availability depends on the player. App launcher opens Windows AppsFolder. No AI tracking. Performance and Windows behavior require testing.
