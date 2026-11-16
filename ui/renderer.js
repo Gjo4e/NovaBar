@@ -35,3 +35,11 @@ $('contextUnpin').onclick=async()=>{const index=contextIndex;closeAppContext();i
 document.addEventListener('pointerdown',e=>{if(!$('appContext').contains(e.target)&&!e.target.closest('#apps'))closeAppContext();});
 $('addPinned').onclick=async()=>render(await call('add'));
 $('windows').addEventListener('contextmenu',async e=>{const b=e.target.closest('button');if(!b)return;e.preventDefault();const index=[...$('windows').children].indexOf(b);const windows=await call('windows_list');if(!windows||!windows[index])return;const s=await call('pin_window',{id:windows[index].id});if(s)render(s);});
+
+let availableUpdate=null;
+async function checkNovaUpdates(silent=false){const status=$('updateStatus');if(!silent)status.textContent='Checking GitHub Releases…';try{const release=await invoke('check_updates');availableUpdate=release;if(release){status.textContent='New version available: v'+release.version;$('installUpdate').hidden=false;}else{status.textContent='NovaBar is up to date';$('installUpdate').hidden=true;}}catch(e){if(!silent)status.textContent='Could not check updates: '+String(e);}}
+$('checkUpdate').onclick=()=>checkNovaUpdates();
+$('installUpdate').onclick=async()=>{if(!availableUpdate)return;if(!confirm('Download and run the NovaBar v'+availableUpdate.version+' installer?'))return;const b=$('installUpdate');b.disabled=true;$('updateStatus').textContent='Downloading and verifying installer…';try{await invoke('install_update',{version:availableUpdate.version,sha256:availableUpdate.sha256});$('updateStatus').textContent='Installer launched. Follow Windows setup prompts.';}catch(e){$('updateStatus').textContent='Update failed: '+String(e);}finally{b.disabled=false;}};
+$('autoUpdateCheck').checked=localStorage.getItem('autoUpdateCheck')!=='false';$('autoUpdateCheck').onchange=()=>localStorage.setItem('autoUpdateCheck',$('autoUpdateCheck').checked);
+if($('autoUpdateCheck').checked)setTimeout(()=>checkNovaUpdates(true),12000);
+setInterval(()=>{if($('autoUpdateCheck').checked)checkNovaUpdates(true);},6*60*60*1000);

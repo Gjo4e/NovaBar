@@ -21,7 +21,7 @@ fn taskbar(hide:bool){unsafe{use windows_sys::Win32::UI::WindowsAndMessaging::{F
 #[tauri::command] fn remove(i:usize,app:AppHandle,data:State<Data>)->Settings{let mut s=data.settings.lock().unwrap();if i<s.shortcuts.len(){s.shortcuts.remove(i);save(&app,&s);}s.clone()}
 #[tauri::command] fn hide(v:bool,app:AppHandle,data:State<Data>)->Settings{let mut s=data.settings.lock().unwrap();if v && !s.hide{if let Ok(exe)=std::env::current_exe(){let _=Command::new(exe).args(["--watchdog",&std::process::id().to_string()]).creation_flags(0x08000000).spawn();}}s.hide=v;taskbar(v);reserve(&app,false);s.clone()}
 #[tauri::command] fn quit(app:AppHandle){reserve(&app,false);taskbar(false);app.exit(0);}
-fn main(){if std::env::args().nth(1).as_deref()==Some("--watchdog"){watchdog();return;}let mutex_name:Vec<u16>="Local\\NovaBarSingleInstance".encode_utf16().chain(Some(0)).collect();let single=unsafe{windows_sys::Win32::System::Threading::CreateMutexW(std::ptr::null(),0,mutex_name.as_ptr())};if single.is_null(){return;}if unsafe{windows_sys::Win32::Foundation::GetLastError()}==183{unsafe{windows_sys::Win32::Foundation::CloseHandle(single)};return;}tauri::Builder::default().setup(|app|{let mut s=std::fs::read_to_string(config(app.handle())).ok().and_then(|x|serde_json::from_str::<Settings>(&x).ok()).unwrap_or_else(defaults);s.hide=false;let initial=s.appearance.clone();app.manage(Data{settings:Mutex::new(s),system:Mutex::new(System::new()),last_foreground:Mutex::new(0),panel_open:Arc::new(AtomicBool::new(false))});let w=app.get_webview_window("main").unwrap();if let Some(m)=w.primary_monitor()?{let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=(initial.width.max(1250) as f64*scale) as u32;let height=(108.0*scale) as u32;let width=width.min(size.width);w.set_size(PhysicalSize::new(width,height))?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32))?;}start_edge_monitor(app.handle().clone());Ok(())}).invoke_handler(tauri::generate_handler![state,stats,launch,add,remove,hide,quit,media,media_action,network,icons,running,appearance,open_start,windows_list,activate_window,window_icons,installed_apps,launch_installed,system_panel,fullscreen,monitor_list,move_monitor,fullscreen_visibility,reorder,autostart,system_settings,volume_key,battery_details,dock_layout,remember_foreground,panel_state,shortcut_windows,pin_window]).on_window_event(|w,e|{if matches!(e,tauri::WindowEvent::CloseRequested{..}){reserve(w.app_handle(),false);taskbar(false);}}).build(tauri::generate_context!()).expect("NovaBar startup failed").run(|_,e|{if matches!(e,tauri::RunEvent::Exit){taskbar(false);}});}
+fn main(){if std::env::args().nth(1).as_deref()==Some("--watchdog"){watchdog();return;}let mutex_name:Vec<u16>="Local\\NovaBarSingleInstance".encode_utf16().chain(Some(0)).collect();let single=unsafe{windows_sys::Win32::System::Threading::CreateMutexW(std::ptr::null(),0,mutex_name.as_ptr())};if single.is_null(){return;}if unsafe{windows_sys::Win32::Foundation::GetLastError()}==183{unsafe{windows_sys::Win32::Foundation::CloseHandle(single)};return;}tauri::Builder::default().setup(|app|{let mut s=std::fs::read_to_string(config(app.handle())).ok().and_then(|x|serde_json::from_str::<Settings>(&x).ok()).unwrap_or_else(defaults);s.hide=false;let initial=s.appearance.clone();app.manage(Data{settings:Mutex::new(s),system:Mutex::new(System::new()),last_foreground:Mutex::new(0),panel_open:Arc::new(AtomicBool::new(false))});let w=app.get_webview_window("main").unwrap();if let Some(m)=w.primary_monitor()?{let scale=m.scale_factor();let size=m.size();let pos=m.position();let width=(initial.width.max(1250) as f64*scale) as u32;let height=(108.0*scale) as u32;let width=width.min(size.width);w.set_size(PhysicalSize::new(width,height))?;w.set_position(PhysicalPosition::new(pos.x+(size.width-width) as i32/2,pos.y+(size.height-height) as i32))?;}start_edge_monitor(app.handle().clone());Ok(())}).invoke_handler(tauri::generate_handler![state,stats,launch,add,remove,hide,quit,media,media_action,network,icons,running,appearance,open_start,windows_list,activate_window,window_icons,installed_apps,launch_installed,system_panel,fullscreen,monitor_list,move_monitor,fullscreen_visibility,reorder,autostart,system_settings,volume_key,battery_details,dock_layout,remember_foreground,panel_state,shortcut_windows,pin_window,check_updates,install_update]).on_window_event(|w,e|{if matches!(e,tauri::WindowEvent::CloseRequested{..}){reserve(w.app_handle(),false);taskbar(false);}}).build(tauri::generate_context!()).expect("NovaBar startup failed").run(|_,e|{if matches!(e,tauri::RunEvent::Exit){taskbar(false);}});}
 
 #[tauri::command] async fn media()->Result<serde_json::Value,String>{
 tauri::async_runtime::spawn_blocking(|| -> Result<serde_json::Value,String>{
@@ -172,4 +172,44 @@ s.shortcuts.push(Shortcut{name,target:window.path});
 save(&app,&s);
 }
 Ok(s.clone())
+}
+
+#[derive(Serialize,Deserialize,Clone)] struct ReleaseUpdate {version:String,url:String,sha256:String,notes:String}
+fn newest_release()->Result<Option<ReleaseUpdate>,String>{
+let client=reqwest::blocking::Client::builder().user_agent("NovaBar-Updater").timeout(std::time::Duration::from_secs(15)).build().map_err(|e|e.to_string())?;
+let release:serde_json::Value=client.get("https://api.github.com/repos/Gjo4e/NovaBar/releases/latest").send().map_err(|e|e.to_string())?.error_for_status().map_err(|e|e.to_string())?.json().map_err(|e|e.to_string())?;
+let tag=release["tag_name"].as_str().ok_or("Missing release tag")?.trim_start_matches('v');
+let current=env!("CARGO_PKG_VERSION");
+let new=semver::Version::parse(tag).map_err(|e|e.to_string())?;
+let old=semver::Version::parse(current).map_err(|e|e.to_string())?;
+if new<=old{return Ok(None)}
+let assets=release["assets"].as_array().ok_or("Missing assets")?;
+let exe=assets.iter().find(|a|a["name"].as_str().map(|n|n.ends_with("-setup.exe")||n.ends_with("_x64-setup.exe")).unwrap_or(false)).ok_or("Release has no Windows installer")?;
+let checksum=assets.iter().find(|a|a["name"]=="SHA256SUMS.txt").ok_or("Release has no checksum")?;
+let url=exe["browser_download_url"].as_str().ok_or("Missing installer URL")?;
+let checksum_url=checksum["browser_download_url"].as_str().ok_or("Missing checksum URL")?;
+let checksums=client.get(checksum_url).send().map_err(|e|e.to_string())?.error_for_status().map_err(|e|e.to_string())?.text().map_err(|e|e.to_string())?;
+let filename=exe["name"].as_str().unwrap_or_default();
+let hash=checksums.lines().find_map(|line|{let mut parts=line.split_whitespace();let hash=parts.next()?;let name=parts.next()?.trim_start_matches('*');if name==filename && hash.len()==64 && hash.bytes().all(|b|b.is_ascii_hexdigit()){Some(hash.to_ascii_lowercase())}else{None}}).ok_or("No valid SHA256 for installer")?;
+Ok(Some(ReleaseUpdate{version:tag.into(),url:url.into(),sha256:hash,notes:release["body"].as_str().unwrap_or_default().chars().take(1200).collect()}))
+}
+#[tauri::command] async fn check_updates()->Result<Option<ReleaseUpdate>,String>{
+tauri::async_runtime::spawn_blocking(newest_release).await.map_err(|e|e.to_string())?
+}
+#[tauri::command] async fn install_update(version:String,sha256:String)->Result<(),String>{
+tauri::async_runtime::spawn_blocking(move||{
+use sha2::{Sha256,Digest};
+let latest=newest_release()?.ok_or("No newer release available")?;
+if latest.version!=version||latest.sha256!=sha256{return Err("Release changed. Check again.".into())}
+let client=reqwest::blocking::Client::builder().user_agent("NovaBar-Updater").timeout(std::time::Duration::from_secs(180)).build().map_err(|e|e.to_string())?;
+let bytes=client.get(&latest.url).send().map_err(|e|e.to_string())?.error_for_status().map_err(|e|e.to_string())?.bytes().map_err(|e|e.to_string())?;
+if bytes.len()>150_000_000{return Err("Installer is unexpectedly large".into())}
+let digest=format!("{:x}",Sha256::digest(&bytes));
+if digest!=latest.sha256{return Err("Installer checksum mismatch".into())}
+let folder=std::env::temp_dir().join("NovaBar-Updates");std::fs::create_dir_all(&folder).map_err(|e|e.to_string())?;
+let file=folder.join(format!("NovaBar-{}-setup.exe",latest.version));
+std::fs::write(&file,&bytes).map_err(|e|e.to_string())?;
+Command::new(&file).spawn().map_err(|e|e.to_string())?;
+Ok(())
+}).await.map_err(|e|e.to_string())?
 }

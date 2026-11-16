@@ -2,9 +2,10 @@ name: Build NovaBar Windows
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   windows:
     runs-on: windows-latest
@@ -35,3 +36,15 @@ jobs:
           name: NovaBar-Windows
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
+
+      - name: Publish verified GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe"
+          if ($files.Count -eq 0) { throw "Installer not found" }
+          $checksums = foreach ($f in $files) { "$((Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower())  $($f.Name)" }
+          $checksums | Set-Content -Encoding ascii SHA256SUMS.txt
+          gh release create "${{ github.ref_name }}" $files.FullName SHA256SUMS.txt --title "NovaBar ${{ github.ref_name }}" --generate-notes
