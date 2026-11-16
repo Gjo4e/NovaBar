@@ -17,3 +17,6 @@ function positionStyle(){document.querySelectorAll('#positionButtons button').fo
 function swatchStyle(){document.querySelectorAll('#swatches button').forEach(b=>b.classList.toggle('selected',b.dataset.color.toLowerCase()===$('accent').value.toLowerCase()));}document.querySelectorAll('#swatches button').forEach(b=>b.onclick=()=>{$('accent').value=b.dataset.color;$('accent').dispatchEvent(new Event('change'));swatchStyle();});$('accent').addEventListener('change',swatchStyle);
 function rangeLabels(){$('opacityValue').textContent=$('opacity').value+'%';$('widthValue').textContent=Math.round(+$('width').value/11)+'%';}$('opacity').addEventListener('input',rangeLabels);$('width').addEventListener('input',rangeLabels);setTimeout(()=>{rangeLabels();swatchStyle();},600);
 const originalMedia=media;media=async function(){await originalMedia();$('mediaDivider').hidden=$('mediaPanel').hidden;};
+
+/* Remember the last real application window before the dock receives focus. */
+call('remember_foreground');setInterval(()=>call('remember_foreground'),250);
