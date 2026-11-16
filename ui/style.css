@@ -49,3 +49,12 @@ button svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8
 main{transition:opacity .15s ease,transform .18s cubic-bezier(.2,.8,.2,1)}#apps button,#windows button{transition:background .14s ease,transform .16s cubic-bezier(.2,.8,.2,1)}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 
 #windowChooser .chooser-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}#chooserTaskManager{border:1px solid #ffffff25;border-radius:8px;padding:4px 8px;font-size:10px;color:#ddd;background:#ffffff0c}.window-choice{position:relative;min-width:180px;min-height:68px;padding-right:28px!important}.preview-close{position:absolute;right:5px;top:5px;width:23px;height:23px;display:grid;place-items:center;border-radius:6px;background:#ffffff18;color:#fff}.preview-close:hover{background:#e34a5d}#windowChoices{display:flex;gap:8px;max-width:min(95vw,780px);overflow-x:auto}#windowChooser{width:max-content;max-width:95vw}
+
+/* Uniform accent system: all interactive surfaces use the chosen color. */
+:root{--accent-soft:color-mix(in srgb,var(--accent) 25%,transparent);--accent-dark:color-mix(in srgb,var(--accent) 34%,#131521)}
+#apps button.active,#windows button.active,.start-icon,.settings-tab.active,.settings-nav button.active,.panel-action:hover,.system-button:hover,#contextOpen:hover,#contextTaskManager:hover,#contextUnpin:hover{background:var(--accent-soft)!important}
+.app-fallback{background:linear-gradient(140deg,var(--accent),var(--accent-dark))!important}
+#windowChooser,.settings-page,#appContext{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+input[type=checkbox],input[type=range],input[type=radio]{accent-color:var(--accent)}
+#windowChooser button:hover,#appContext button:hover,#results button:hover{background:var(--accent-soft)}
+#apps button.active:after,#windows button.active:after{background:var(--accent);box-shadow:0 0 8px var(--accent)}
