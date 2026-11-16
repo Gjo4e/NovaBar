@@ -1,6 +1,6 @@
 {
   "productName": "NovaBar",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "identifier": "com.novabar.desktop",
   "build": {
     "frontendDist": "../ui"
@@ -12,7 +12,7 @@
         "label": "main",
         "title": "NovaBar",
         "width": 900,
-        "height": 120,
+        "height": 108,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
