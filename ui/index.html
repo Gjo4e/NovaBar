@@ -7,7 +7,7 @@
 <div class="settings-page" data-page="advanced" hidden><label class="setting-title">Display</label><label>Monitor <select id="monitor"></select></label><button id="soundSettings" class="panel-action">Windows sound settings</button><button id="brightness" class="panel-action">Display brightness</button><button id="wifiPicker" class="panel-action">Wi-Fi networks</button><button id="quit" class="panel-action danger">Exit NovaBar</button></div>
 <div class="settings-page" data-page="about" hidden><div class="about-mark">NovaBar</div><strong>NovaBar</strong><small>Free Windows 11 desktop dock</small><small>Built with Tauri and Rust</small></div>
 </div></div></section>
-<section id="launcher" hidden><input id="search" type="search" placeholder="Search installed applications"><div id="results"></div><button id="nativeStart">Windows Start</button></section>
+<section id="windowChooser" hidden role="menu" aria-label="Open application windows"><div class="chooser-heading">Open windows</div><div id="windowChoices"></div></section><section id="launcher" hidden><input id="search" type="search" placeholder="Search installed applications"><div id="results"></div><button id="nativeStart">Windows Start</button></section>
 <section id="custom" hidden><div id="customHelp">Customize widgets in Settings → Widgets</div><button id="customClose">Close</button></section>
 <section id="calendar" hidden><strong id="month"></strong><div id="days"></div><button id="closeCalendar">Close</button></section>
 <section id="soundPanel" hidden><button id="volDown">Volume −</button><button id="volMute">Mute</button><button id="volUp">Volume +</button><button id="sound">Volume</button></section>

@@ -25,3 +25,11 @@ button svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8
 #settings{isolation:isolate}
 #apps,#windows{scrollbar-width:none}
 #apps button:hover,#windows button:hover{transform:translateY(-2px)}
+
+#windowChooser:not([hidden]){position:absolute;bottom:100px;width:315px;max-height:360px;overflow:auto;padding:12px;border-radius:17px;display:flex;flex-direction:column;gap:8px;transform:translateX(-50%);z-index:9}
+.chooser-heading{font-size:12px;font-weight:650;color:#c7b7eb;padding:4px 7px 8px}
+#windowChoices{display:flex;flex-direction:column;gap:6px}
+.window-choice{display:flex;flex-direction:column;align-items:flex-start;gap:5px;text-align:left;padding:12px;border-radius:11px;background:#ffffff10;border:1px solid #ffffff13;min-width:0}
+.window-choice:hover,.window-choice:focus-visible{background:color-mix(in srgb,var(--accent) 28%,#202332);border-color:var(--accent)}
+.window-choice strong{max-width:100%;font-size:12px;font-weight:600;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.window-choice small{font-size:11px;color:#b6aec7}
