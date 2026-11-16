@@ -33,3 +33,11 @@ button svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8
 .window-choice:hover,.window-choice:focus-visible{background:color-mix(in srgb,var(--accent) 28%,#202332);border-color:var(--accent)}
 .window-choice strong{max-width:100%;font-size:12px;font-weight:600;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 .window-choice small{font-size:11px;color:#b6aec7}
+
+#appContext:not([hidden]){position:absolute;bottom:102px;width:185px;max-width:calc(100% - 20px);padding:7px;z-index:12;display:block;border-radius:12px}
+#appContext button{width:100%;text-align:left;padding:11px 12px;border-radius:8px;background:#ffffff0b;font-size:12px}
+#appContext button:hover{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+#pinnedApps{display:flex;flex-direction:column;gap:6px;max-height:135px;overflow:auto}
+.pinned-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid #ffffff18;border-radius:10px;background:#ffffff0b}
+.pinned-row span{white-space:nowrap;text-overflow:ellipsis;overflow:hidden;min-width:0}
+.pinned-row button{border-radius:8px;padding:6px 10px;background:#ffffff16;color:#d8c5ff}
