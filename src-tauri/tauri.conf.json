@@ -1,6 +1,6 @@
 {
   "productName": "NovaBar",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "identifier": "com.novabar.desktop",
   "build": {
     "frontendDist": "../ui"
