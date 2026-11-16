@@ -18,7 +18,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
-        "shadow": false
+        "shadow": false,
+        "visible": false
       },
       {
         "label": "secondary",
