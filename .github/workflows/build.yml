@@ -38,7 +38,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish verified GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -47,4 +47,7 @@ jobs:
           if ($files.Count -eq 0) { throw "Installer not found" }
           $checksums = foreach ($f in $files) { "$((Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower())  $($f.Name)" }
           $checksums | Set-Content -Encoding ascii SHA256SUMS.txt
-          gh release create "${{ github.ref_name }}" $files.FullName SHA256SUMS.txt --title "NovaBar ${{ github.ref_name }}" --generate-notes
+          $tag = "v" + (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          gh release view $tag --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) { Write-Host "Release $tag already exists"; exit 0 }
+          gh release create $tag $files.FullName SHA256SUMS.txt --target "${{ github.sha }}" --title "NovaBar $tag" --generate-notes
