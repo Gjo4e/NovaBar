@@ -43,3 +43,7 @@ button svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8
 .pinned-row button{border-radius:8px;padding:6px 10px;background:#ffffff16;color:#d8c5ff}
 #updateStatus{padding:10px 12px;border-radius:10px;background:#ffffff12;font-size:12px;line-height:1.4}#installUpdate{background:color-mix(in srgb,var(--accent) 35%,#25283b);border:1px solid var(--accent)}
 .app-fallback{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;background:linear-gradient(140deg,#6962ac,#303d63);color:#fff;font-size:13px;font-weight:700;line-height:1}.window-count{position:absolute;right:1px;bottom:1px;font-size:10px;padding:1px 4px;background:#34304e;border-radius:8px;border:1px solid #9b8bd0}.start-icon svg{fill:none;stroke:currentColor;stroke-width:1.8}
+
+/* Crisp signal indicator and lightweight transitions */
+.wifi-bars{display:inline-flex;align-items:flex-end;gap:3px;height:19px}.wifi-bars i{display:block;width:4px;border-radius:3px;background:#ffffff30;transition:background .16s ease}.wifi-bars i.lit{background:var(--accent);box-shadow:0 0 5px color-mix(in srgb,var(--accent) 45%,transparent)}
+main{transition:opacity .15s ease,transform .18s cubic-bezier(.2,.8,.2,1)}#apps button,#windows button{transition:background .14s ease,transform .16s cubic-bezier(.2,.8,.2,1)}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}

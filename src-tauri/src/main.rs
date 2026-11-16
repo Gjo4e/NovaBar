@@ -46,14 +46,8 @@ op.and_then(|x|x.get()).map_err(|e|e.to_string())?;Ok(())
 use windows::Networking::Connectivity::NetworkInformation;
 if let Ok(p)=NetworkInformation::GetInternetConnectionProfile(){let wifi=p.IsWlanConnectionProfile().unwrap_or(false);let bars=p.GetSignalBars().and_then(|x|x.Value()).ok();let name=p.ProfileName().map(|x|x.to_string_lossy()).unwrap_or_default();return serde_json::json!({"connected":true,"wifi":wifi,"bars":bars,"name":name});}serde_json::json!({"connected":false})
 }
-#[tauri::command] async fn icons(data:State<'_,Data>)->Result<Vec<Option<String>>,String>{
-let targets:Vec<String>=data.settings.lock().unwrap().shortcuts.iter().map(|x|x.target.clone()).collect();
-tauri::async_runtime::spawn_blocking(move || targets.into_iter().map(|target|{
-let path=if target=="explorer.exe"{std::env::var("WINDIR").ok().map(|x|format!("{}\\explorer.exe",x))?}else if target.starts_with("https:"){std::env::var("PROGRAMFILES").ok().map(|x|format!("{}\\Microsoft\\Edge\\Application\\msedge.exe",x)).filter(|x|std::path::Path::new(x).exists())?}else if target.starts_with("ms-settings:"){std::env::var("WINDIR").ok().map(|x|format!("{}\\System32\\control.exe",x))?}else{target};
-let script=r#"Add-Type -AssemblyName System.Drawing; $p=$env:NOVABAR_ICON_PATH; if($p.EndsWith('.lnk')){$p=(New-Object -ComObject WScript.Shell).CreateShortcut($p).TargetPath}; $i=[System.Drawing.Icon]::ExtractAssociatedIcon($p); if($i){$b=$i.ToBitmap();$m=New-Object IO.MemoryStream;$b.Save($m,[System.Drawing.Imaging.ImageFormat]::Png);[Convert]::ToBase64String($m.ToArray());$m.Dispose();$b.Dispose();$i.Dispose()}"#;
-let o=Command::new("powershell.exe").args(["-NoProfile","-NonInteractive","-Command",script]).env("NOVABAR_ICON_PATH",path).creation_flags(0x08000000).output().ok()?;if !o.status.success(){return None}let b=String::from_utf8(o.stdout).ok()?.trim().to_string();if b.is_empty(){None}else{Some(format!("data:image/png;base64,{}",b))}
-}).collect()).await.map_err(|e|e.to_string())
-}
+fn native_icon(path:&str)->Option<String>{use windows_sys::Win32::UI::Shell::{SHGetFileInfoW,SHFILEINFOW,SHGFI_ICON,SHGFI_LARGEICON};use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon,GetIconInfo,ICONINFO};use windows_sys::Win32::Graphics::Gdi::{GetObjectW,BITMAP,GetDC,ReleaseDC,CreateCompatibleDC,SelectObject,GetDIBits,BITMAPINFO,BITMAPINFOHEADER,BI_RGB,DIB_RGB_COLORS,DeleteDC,DeleteObject};use base64::Engine;let path:Vec<u16>=path.encode_utf16().chain(Some(0)).collect();unsafe{let mut info:SHFILEINFOW=std::mem::zeroed();let ok=SHGetFileInfoW(path.as_ptr(),0,&mut info,std::mem::size_of::<SHFILEINFOW>() as u32,SHGFI_ICON|SHGFI_LARGEICON);if ok==0||info.hIcon.is_null(){return None}let icon=info.hIcon;let mut ii:ICONINFO=std::mem::zeroed();if GetIconInfo(icon,&mut ii)==0{DestroyIcon(icon);return None}let mut bm:BITMAP=std::mem::zeroed();let got=GetObjectW(ii.hbmColor as _,std::mem::size_of::<BITMAP>() as i32,&mut bm as *mut _ as _);let width=bm.bmWidth.max(1) as usize;let height=bm.bmHeight.max(1) as usize;let result=if got>0&&width<=256&&height<=256{let dc=GetDC(std::ptr::null_mut());let mem=CreateCompatibleDC(dc);let old=SelectObject(mem,ii.hbmColor as _);let mut pixels=vec![0u8;width*height*4];let mut bmi:BITMAPINFO=std::mem::zeroed();bmi.bmiHeader=BITMAPINFOHEADER{biSize:std::mem::size_of::<BITMAPINFOHEADER>() as u32,biWidth:width as i32,biHeight:-(height as i32),biPlanes:1,biBitCount:32,biCompression:BI_RGB,..std::mem::zeroed()};let read=GetDIBits(mem,ii.hbmColor,0,height as u32,pixels.as_mut_ptr() as _,&mut bmi,DIB_RGB_COLORS);SelectObject(mem,old);DeleteDC(mem);ReleaseDC(std::ptr::null_mut(),dc);if read!=0{for px in pixels.chunks_exact_mut(4){px.swap(0,2);if px[3]==0&&px[0]!=0&&px[1]!=0&&px[2]!=0{px[3]=255;}}let mut png=Vec::new();let encoder=png::Encoder::new(&mut png,width as u32,height as u32);let mut encoder=encoder;encoder.set_color(png::ColorType::Rgba);encoder.set_depth(png::BitDepth::Eight);if let Ok(mut writer)=encoder.write_header(){if writer.write_image_data(&pixels).is_ok(){drop(writer);Some(format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(&png)))}else{None}}else{None}}else{None}}else{None};if !ii.hbmColor.is_null(){DeleteObject(ii.hbmColor as _);}if !ii.hbmMask.is_null(){DeleteObject(ii.hbmMask as _);}DestroyIcon(icon);result}}
+#[tauri::command] async fn icons(data:State<'_,Data>)->Result<Vec<Option<String>>,String>{let targets:Vec<String>=data.settings.lock().unwrap().shortcuts.iter().map(|x|x.target.clone()).collect();tauri::async_runtime::spawn_blocking(move||targets.into_iter().map(|target|{let path=if target=="explorer.exe"{std::env::var("WINDIR").ok().map(|x|format!("{}\\explorer.exe",x))?}else if target.starts_with("https:"){std::env::var("PROGRAMFILES").ok().map(|x|format!("{}\\Microsoft\\Edge\\Application\\msedge.exe",x))?}else if target.starts_with("ms-settings:"){std::env::var("WINDIR").ok().map(|x|format!("{}\\System32\\control.exe",x))?}else{target};native_icon(&path)}).collect()).await.map_err(|e|e.to_string())}
 #[tauri::command] fn running(data:State<Data>)->Vec<bool>{
 let wins=windows_list();let s=data.settings.lock().unwrap();s.shortcuts.iter().map(|a|{let t=if a.target.to_ascii_lowercase().ends_with(".lnk"){resolve_shortcut(&a.target).unwrap_or(a.target.clone())}else{a.target.clone()};wins.iter().any(|w|matches_target(&t,&w.path))}).collect()
 }
@@ -78,13 +72,7 @@ let mut result=Vec::new();unsafe{EnumWindows(Some(collect),&mut result as *mut V
 fn activate_window_with_previous(id:String,last:usize)->Result<(),String>{
 use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindow,IsIconic,ShowWindow,SetForegroundWindow,GetForegroundWindow,SW_RESTORE,SW_MINIMIZE};let n=id.parse::<usize>().map_err(|e|e.to_string())?;if !windows_list().iter().any(|w|w.id==id){return Err("Window no longer available".into())}let h=n as windows_sys::Win32::Foundation::HWND;unsafe{if IsWindow(h)==0{return Err("Window closed".into())}if GetForegroundWindow()==h || (last!=0 && last==n){ShowWindow(h,SW_MINIMIZE);}else{if IsIconic(h)!=0{ShowWindow(h,SW_RESTORE);}SetForegroundWindow(h);}}Ok(())
 }
-#[tauri::command] async fn window_icons(paths:Vec<String>)->Result<Vec<Option<String>>,String>{
-tauri::async_runtime::spawn_blocking(move || paths.into_iter().take(80).map(|p|{
-let script=r#"Add-Type -AssemblyName System.Drawing; $i=[System.Drawing.Icon]::ExtractAssociatedIcon($env:NOVABAR_ICON_PATH); if($i){$b=$i.ToBitmap();$m=New-Object IO.MemoryStream;$b.Save($m,[System.Drawing.Imaging.ImageFormat]::Png);[Convert]::ToBase64String($m.ToArray());$m.Dispose();$b.Dispose();$i.Dispose()}"#;
-let o=Command::new("powershell.exe").args(["-NoProfile","-NonInteractive","-Command",script]).env("NOVABAR_ICON_PATH",p).creation_flags(0x08000000).output().ok()?;if !o.status.success(){return None}let b=String::from_utf8(o.stdout).ok()?.trim().to_string();if b.is_empty(){None}else{Some(format!("data:image/png;base64,{}",b))}
-}).collect()).await.map_err(|e|e.to_string())
-}
-
+#[tauri::command] async fn window_icons(paths:Vec<String>)->Result<Vec<Option<String>>,String>{tauri::async_runtime::spawn_blocking(move||paths.into_iter().take(80).map(|p|native_icon(&p)).collect()).await.map_err(|e|e.to_string())}
 fn watchdog(){use windows_sys::Win32::{Foundation::CloseHandle,System::Threading::{OpenProcess,WaitForSingleObject}};if let Some(pid)=std::env::args().nth(2).and_then(|x|x.parse::<u32>().ok()){unsafe{let h=OpenProcess(0x00100000,0,pid);if !h.is_null(){WaitForSingleObject(h,0xffffffff);CloseHandle(h);}}taskbar(false);}}
 #[derive(Serialize,Deserialize)] struct InstalledApp { #[serde(rename="Name")] name:String, #[serde(rename="AppID")] id:String }
 #[tauri::command] async fn installed_apps()->Result<Vec<InstalledApp>,String>{tauri::async_runtime::spawn_blocking(||{let o=Command::new("powershell.exe").args(["-NoProfile","-NonInteractive","-Command","[Console]::OutputEncoding=[Text.Encoding]::UTF8; @(Get-StartApps | Sort-Object Name) | ConvertTo-Json -Compress"]).creation_flags(0x08000000).output().map_err(|e|e.to_string())?;if !o.status.success(){return Err("Unable to enumerate installed apps".into())}serde_json::from_slice::<Vec<InstalledApp>>(&o.stdout).or_else(|_|serde_json::from_slice::<InstalledApp>(&o.stdout).map(|a|vec![a])).map_err(|e|e.to_string())}).await.map_err(|e|e.to_string())?}
@@ -126,7 +114,7 @@ std::thread::spawn(move||{
 use windows_sys::Win32::{Foundation::POINT,UI::WindowsAndMessaging::GetCursorPos};
 let mut shown=false;let mut last_near=std::time::Instant::now();let mut second_shown=false;let mut second_last_near=std::time::Instant::now();
 loop{
-std::thread::sleep(std::time::Duration::from_millis(65));
+std::thread::sleep(std::time::Duration::from_millis(24));
 let Some(w)=app.get_webview_window("main") else {break};
 let Ok(Some(m))=w.current_monitor() else {continue};
 let p=m.position();let s=m.size();
@@ -136,7 +124,7 @@ let at_edge=cursor.x>=p.x && cursor.x<p.x+s.width as i32 && cursor.y>=p.y+s.heig
 let inside=w.outer_position().ok().zip(w.outer_size().ok()).map(|(pos,size)|cursor.x>=pos.x && cursor.x<pos.x+size.width as i32 && cursor.y>=pos.y && cursor.y<pos.y+size.height as i32).unwrap_or(false);
 let open=flag.load(Ordering::Relaxed);
 if at_edge||inside||open{last_near=std::time::Instant::now();}
-let should_show=at_edge||open||shown && last_near.elapsed()<std::time::Duration::from_millis(850);
+let should_show=at_edge||open||shown && last_near.elapsed()<std::time::Duration::from_millis(180);
 if should_show!=shown{shown=should_show;if shown{let _=w.show();}else{let _=w.hide();}}
 if let Some(second)=app.get_webview_window("secondary"){
 let enabled=app.state::<Data>().settings.lock().unwrap().both_monitors;
